@@ -19,6 +19,8 @@ The key and values in a ConfigMap can only be strings.
 This means that we want a value with boolean values we need to quote the values, like "true" or "false".
 Same for numbers, like "100".
 
+"Slice" types (defined below as `[]string` or `[]int` can be provided as a comma-delimited string.
+
 ## Configuration options
 
 The following table shows a configuration option's name, type, and the default value:
@@ -80,12 +82,14 @@ The following table shows a configuration option's name, type, and the default v
 |[ssl-buffer-size](#ssl-buffer-size)|string|"4k"|
 |[use-proxy-protocol](#use-proxy-protocol)|bool|"false"|
 |[use-gzip](#use-gzip)|bool|"true"|
+|[use-geoip](#use-geoip)|bool|"true"|
 |[enable-brotli](#enable-brotli)|bool|"true"|
 |[brotli-level](#brotli-level)|int|4|
 |[brotli-types](#brotli-types)|string|"application/xml+rss application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component"|
 |[use-http2](#use-http2)|bool|"true"|
 |[gzip-types](#gzip-types)|string|"application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component"|
 |[worker-processes](#worker-processes)|string|`<Number of CPUs>`|
+|[worker-cpu-affinity](#worker-cpu-affinity)|string|""|
 |[worker-shutdown-timeout](#worker-shutdown-timeout)|string|"10s"|
 |[load-balance](#load-balance)|string|"least_conn"|
 |[variables-hash-bucket-size](#variables-hash-bucket-size)|int|128|
@@ -119,6 +123,7 @@ The following table shows a configuration option's name, type, and the default v
 |[proxy-cookie-path](#proxy-cookie-path)|string|"off"|
 |[proxy-cookie-domain](#proxy-cookie-domain)|string|"off"|
 |[proxy-next-upstream](#proxy-next-upstream)|string|"error timeout invalid_header http_502 http_503 http_504"|
+|[proxy-next-upstream-tries](#proxy-next-upstream-tries)|int|0|
 |[proxy-redirect-from](#proxy-redirect-from)|string|"off"|
 |[proxy-request-buffering](#proxy-request-buffering)|string|"on"|
 |[ssl-redirect](#ssl-redirect)|bool|"true"|
@@ -128,7 +133,8 @@ The following table shows a configuration option's name, type, and the default v
 |[limit-rate-after](#limit-rate-after)|int|0|
 |[http-redirect-code](#http-redirect-code)|int|308|
 |[proxy-buffering](#proxy-buffering)|string|"off"|
-|[limit-request-status-code](#limit-request-status-code)|int|503|
+|[limit-req-status-code](#limit-req-status-code)|int|503|
+|[no-tls-redirect-locations](#no-tls-redirect-locations)|string|"/.well-known/acme-challenge"|
 
 ## add-headers
 
@@ -458,6 +464,11 @@ Enables or disables the [PROXY protocol](https://www.nginx.com/resources/admin-g
 Enables or disables compression of HTTP responses using the ["gzip" module](http://nginx.org/en/docs/http/ngx_http_gzip_module.html).
 The default mime type list to compress is: `application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component`.
 
+## use-geoip
+
+Enables or disables ["geoip" module](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) that creates variables with values depending on the client IP address, using the precompiled MaxMind databases.
+The default value is true.
+
 ## enable-brotli
 
 Enables or disables compression of HTTP responses using the ["brotli" module](https://github.com/google/ngx_brotli).
@@ -486,6 +497,15 @@ Sets the MIME types in addition to "text/html" to compress. The special value "\
 
 Sets the number of [worker processes](http://nginx.org/en/docs/ngx_core_module.html#worker_processes).
 The default of "auto" means number of available CPU cores.
+
+## worker-cpu-affinity
+
+Binds worker processes to the sets of CPUs. [worker_cpu_affinity](http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity).
+By default worker processes are not bound to any specific CPUs. The value can be:
+
+- "": empty string indicate no affinity is applied.
+- cpumask: e.g. `0001 0010 0100 1000` to bind processes to specific cpus.
+- auto: binding worker processes automatically to available CPUs.
 
 ## worker-shutdown-timeout
 
@@ -657,6 +677,10 @@ Sets a text that [should be changed in the domain attribute](http://nginx.org/en
 
 Specifies in [which cases](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream) a request should be passed to the next server.
 
+## proxy-next-upstream-tries
+
+Limit the number of [possible tries](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream_tries) a request should be passed to the next server.
+
 ## proxy-redirect-from
 
 Sets the original text that should be changed in the "Location" and "Refresh" header fields of a proxied server response. Default: off.
@@ -710,6 +734,11 @@ Why the default code is 308?
 
 Enables or disables [buffering of responses from the proxied server](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering).
 
-## limit-request-status-code
+## limit-req-status-code
 
 Sets the [status code to return in response to rejected requests](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req_status).Default: 503
+
+## no-tls-redirect-locations
+
+A comma-separated list of locations on which http requests will never get redirected to their https counterpart.
+Default: "/.well-known/acme-challenge"

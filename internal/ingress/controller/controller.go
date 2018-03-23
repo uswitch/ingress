@@ -73,7 +73,8 @@ type Configuration struct {
 	DefaultSSLCertificate string
 
 	// optional
-	PublishService string
+	PublishService       string
+	PublishStatusAddress string
 
 	UpdateStatus           bool
 	UseNodeInternalIP      bool
@@ -94,6 +95,8 @@ type Configuration struct {
 	FakeCertificateSHA  string
 
 	SyncRateLimit float32
+
+	DynamicConfigurationEnabled bool
 }
 
 // GetPublishService returns the configured service used to set ingress status
@@ -166,6 +169,15 @@ func (n *NGINXController) syncIngress(item interface{}) error {
 	if !n.isForceReload() && n.runningConfig.Equal(&pcfg) {
 		glog.V(3).Infof("skipping backend reload (no changes detected)")
 		return nil
+	} else if !n.isForceReload() && n.cfg.DynamicConfigurationEnabled && n.IsDynamicallyConfigurable(&pcfg) {
+		err := n.ConfigureDynamically(&pcfg)
+		if err == nil {
+			glog.Infof("dynamic reconfiguration succeeded, skipping reload")
+			n.runningConfig = &pcfg
+			return nil
+		}
+
+		glog.Warningf("falling back to reload, could not dynamically reconfigure: %v", err)
 	}
 
 	glog.Infof("backend reload required")
@@ -180,6 +192,19 @@ func (n *NGINXController) syncIngress(item interface{}) error {
 	glog.Infof("ingress backend successfully reloaded...")
 	incReloadCount()
 	setSSLExpireTime(servers)
+
+	if n.isForceReload() && n.cfg.DynamicConfigurationEnabled {
+		go func() {
+			// it takes time for Nginx to start listening on the port
+			time.Sleep(1 * time.Second)
+			err := n.ConfigureDynamically(&pcfg)
+			if err == nil {
+				glog.Infof("dynamic reconfiguration succeeded")
+			} else {
+				glog.Warningf("could not dynamically reconfigure: %v", err)
+			}
+		}()
+	}
 
 	n.runningConfig = &pcfg
 	n.SetForceReload(false)
@@ -369,12 +394,14 @@ func (n *NGINXController) getBackendServers(ingresses []*extensions.Ingress) ([]
 				continue
 			}
 
+			if server.AuthTLSError == "" && anns.CertificateAuth.AuthTLSError != "" {
+				server.AuthTLSError = anns.CertificateAuth.AuthTLSError
+			}
+
 			if server.CertificateAuth.CAFileName == "" {
-				server.CertificateAuth = anns.CertificateAuth
 				// It is possible that no CAFileName is found in the secret
 				if server.CertificateAuth.CAFileName == "" {
 					glog.V(3).Infof("secret %v does not contain 'ca.crt', mutual authentication not enabled - ingress rule %v/%v.", server.CertificateAuth.Secret, ing.Namespace, ing.Name)
-
 				}
 			} else {
 				glog.V(3).Infof("server %v already contains a mutual authentication configuration - ingress rule %v/%v", server.Hostname, ing.Namespace, ing.Name)
@@ -427,6 +454,8 @@ func (n *NGINXController) getBackendServers(ingresses []*extensions.Ingress) ([]
 						loc.XForwardedPrefix = anns.XForwardedPrefix
 						loc.UsePortInRedirects = anns.UsePortInRedirects
 						loc.Connection = anns.Connection
+						loc.Logs = anns.Logs
+						loc.GRPC = anns.GRPC
 
 						if loc.Redirect.FromToWWW {
 							server.RedirectFromToWWW = true
@@ -460,6 +489,8 @@ func (n *NGINXController) getBackendServers(ingresses []*extensions.Ingress) ([]
 						XForwardedPrefix:     anns.XForwardedPrefix,
 						UsePortInRedirects:   anns.UsePortInRedirects,
 						Connection:           anns.Connection,
+						Logs:                 anns.Logs,
+						GRPC:                 anns.GRPC,
 					}
 
 					if loc.Redirect.FromToWWW {
@@ -594,6 +625,9 @@ func (n *NGINXController) createUpstreams(data []*extensions.Ingress, du *ingres
 			if upstreams[defBackend].UpstreamHashBy == "" {
 				upstreams[defBackend].UpstreamHashBy = anns.UpstreamHashBy
 			}
+			if upstreams[defBackend].LoadBalancing == "" {
+				upstreams[defBackend].LoadBalancing = anns.LoadBalancing
+			}
 
 			svcKey := fmt.Sprintf("%v/%v", ing.GetNamespace(), ing.Spec.Backend.ServiceName)
 
@@ -647,6 +681,10 @@ func (n *NGINXController) createUpstreams(data []*extensions.Ingress, du *ingres
 
 				if upstreams[name].UpstreamHashBy == "" {
 					upstreams[name].UpstreamHashBy = anns.UpstreamHashBy
+				}
+
+				if upstreams[name].LoadBalancing == "" {
+					upstreams[name].LoadBalancing = anns.LoadBalancing
 				}
 
 				svcKey := fmt.Sprintf("%v/%v", ing.GetNamespace(), path.Backend.ServiceName)
@@ -814,6 +852,7 @@ func (n *NGINXController) createServers(data []*extensions.Ingress,
 		CookieDomain:      bdef.ProxyCookieDomain,
 		CookiePath:        bdef.ProxyCookiePath,
 		NextUpstream:      bdef.ProxyNextUpstream,
+		NextUpstreamTries: bdef.ProxyNextUpstreamTries,
 		RequestBuffering:  bdef.ProxyRequestBuffering,
 		ProxyRedirectFrom: bdef.ProxyRedirectFrom,
 		ProxyBuffering:    bdef.ProxyBuffering,
@@ -887,6 +926,7 @@ func (n *NGINXController) createServers(data []*extensions.Ingress,
 					defLoc.VtsFilterKey = anns.VtsFilterKey
 					defLoc.Whitelist = anns.Whitelist
 					defLoc.Denied = anns.Denied
+					defLoc.GRPC = anns.GRPC
 				}
 			}
 		}

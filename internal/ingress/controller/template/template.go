@@ -122,12 +122,14 @@ var (
 		"buildLocation":            buildLocation,
 		"buildAuthLocation":        buildAuthLocation,
 		"buildAuthResponseHeaders": buildAuthResponseHeaders,
+		"buildLoadBalancingConfig": buildLoadBalancingConfig,
 		"buildProxyPass":           buildProxyPass,
 		"filterRateLimits":         filterRateLimits,
 		"buildRateLimitZones":      buildRateLimitZones,
 		"buildRateLimit":           buildRateLimit,
 		"buildResolvers":           buildResolvers,
 		"buildUpstreamName":        buildUpstreamName,
+		"isLocationInLocationList": isLocationInLocationList,
 		"isLocationAllowed":        isLocationAllowed,
 		"buildLogFormatUpstream":   buildLogFormatUpstream,
 		"buildDenyVariable":        buildDenyVariable,
@@ -277,11 +279,36 @@ func buildLogFormatUpstream(input interface{}) string {
 	return cfg.BuildLogFormatUpstream()
 }
 
+func buildLoadBalancingConfig(b interface{}, fallbackLoadBalancing string) string {
+	backend, ok := b.(*ingress.Backend)
+	if !ok {
+		glog.Errorf("expected an '*ingress.Backend' type but %T was returned", b)
+		return ""
+	}
+
+	if backend.UpstreamHashBy != "" {
+		return fmt.Sprintf("hash %s consistent;", backend.UpstreamHashBy)
+	}
+
+	if backend.LoadBalancing != "" {
+		if backend.LoadBalancing == "round_robin" {
+			return ""
+		}
+		return fmt.Sprintf("%s;", backend.LoadBalancing)
+	}
+
+	if fallbackLoadBalancing == "round_robin" {
+		return ""
+	}
+
+	return fmt.Sprintf("%s;", fallbackLoadBalancing)
+}
+
 // buildProxyPass produces the proxy pass string, if the ingress has redirects
 // (specified through the nginx.ingress.kubernetes.io/rewrite-to annotation)
 // If the annotation nginx.ingress.kubernetes.io/add-base-url:"true" is specified it will
 // add a base tag in the head of the response from the service
-func buildProxyPass(host string, b interface{}, loc interface{}) string {
+func buildProxyPass(host string, b interface{}, loc interface{}, dynamicConfigurationEnabled bool) string {
 	backends, ok := b.([]*ingress.Backend)
 	if !ok {
 		glog.Errorf("expected an '[]*ingress.Backend' type but %T was returned", b)
@@ -297,14 +324,28 @@ func buildProxyPass(host string, b interface{}, loc interface{}) string {
 	path := location.Path
 	proto := "http"
 
-	upstreamName := location.Backend
+	proxyPass := "proxy_pass"
+	if location.GRPC {
+		proxyPass = "grpc_pass"
+		proto = "grpc"
+	}
+
+	upstreamName := "upstream_balancer"
+
+	if !dynamicConfigurationEnabled {
+		upstreamName = location.Backend
+	}
+
 	for _, backend := range backends {
 		if backend.Name == location.Backend {
 			if backend.Secure || backend.SSLPassthrough {
 				proto = "https"
+				if location.GRPC {
+					proto = "grpcs"
+				}
 			}
 
-			if isSticky(host, location, backend.SessionAffinity.CookieSessionAffinity.Locations) {
+			if !dynamicConfigurationEnabled && isSticky(host, location, backend.SessionAffinity.CookieSessionAffinity.Locations) {
 				upstreamName = fmt.Sprintf("sticky-%v", upstreamName)
 			}
 
@@ -313,7 +354,8 @@ func buildProxyPass(host string, b interface{}, loc interface{}) string {
 	}
 
 	// defProxyPass returns the default proxy_pass, just the name of the upstream
-	defProxyPass := fmt.Sprintf("proxy_pass %s://%s;", proto, upstreamName)
+	defProxyPass := fmt.Sprintf("%v %s://%s;", proxyPass, proto, upstreamName)
+
 	// if the path in the ingress rule is equals to the target: no special rewrite
 	if path == location.Rewrite.Target {
 		return defProxyPass
@@ -349,14 +391,14 @@ func buildProxyPass(host string, b interface{}, loc interface{}) string {
 			return fmt.Sprintf(`
 	    rewrite %s(.*) /$1 break;
 	    rewrite %s / break;
-	    %vproxy_pass %s://%s;
-	    %v`, path, location.Path, xForwardedPrefix, proto, upstreamName, abu)
+	    %v%v %s://%s;
+	    %v`, path, location.Path, xForwardedPrefix, proxyPass, proto, upstreamName, abu)
 		}
 
 		return fmt.Sprintf(`
 	    rewrite %s(.*) %s/$1 break;
-	    %vproxy_pass %s://%s;
-	    %v`, path, location.Rewrite.Target, xForwardedPrefix, proto, upstreamName, abu)
+	    %v%v %s://%s;
+	    %v`, path, location.Rewrite.Target, xForwardedPrefix, proxyPass, proto, upstreamName, abu)
 	}
 
 	// default proxy_pass
@@ -479,6 +521,28 @@ func buildRateLimit(input interface{}) []string {
 	}
 
 	return limits
+}
+
+func isLocationInLocationList(location interface{}, rawLocationList string) bool {
+	loc, ok := location.(*ingress.Location)
+	if !ok {
+		glog.Errorf("expected an '*ingress.Location' type but %T was returned", location)
+		return false
+	}
+
+	locationList := strings.Split(rawLocationList, ",")
+
+	for _, locationListItem := range locationList {
+		locationListItem = strings.Trim(locationListItem, " ")
+		if locationListItem == "" {
+			continue
+		}
+		if strings.HasPrefix(loc.Path, locationListItem) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isLocationAllowed(input interface{}) bool {
@@ -729,13 +793,16 @@ func buildOpentracingLoad(input interface{}) string {
 		return ""
 	}
 
-	buf := bytes.NewBufferString("load_module/etc/nginx/modules/ngx_http_opentracing_module.so;")
+	buf := bytes.NewBufferString("load_module /etc/nginx/modules/ngx_http_opentracing_module.so;")
+	buf.WriteString("\r\n")
 
 	if cfg.ZipkinCollectorHost != "" {
-		buf.WriteString("load_module/etc/nginx/modules/ngx_http_zipkin_module.so;")
+		buf.WriteString("load_module /etc/nginx/modules/ngx_http_zipkin_module.so;")
 	} else if cfg.JaegerCollectorHost != "" {
-		buf.WriteString("load_module/etc/nginx/modules/ngx_http_jaeger_module.so;")
+		buf.WriteString("load_module /etc/nginx/modules/ngx_http_jaeger_module.so;")
 	}
+
+	buf.WriteString("\r\n")
 
 	return buf.String()
 }
@@ -755,14 +822,20 @@ func buildOpentracing(input interface{}) string {
 
 	if cfg.ZipkinCollectorHost != "" {
 		buf.WriteString(fmt.Sprintf("zipkin_collector_host                   %v;", cfg.ZipkinCollectorHost))
+		buf.WriteString("\r\n")
 		buf.WriteString(fmt.Sprintf("zipkin_collector_port                   %v;", cfg.ZipkinCollectorPort))
+		buf.WriteString("\r\n")
 		buf.WriteString(fmt.Sprintf("zipkin_service_name                     %v;", cfg.ZipkinServiceName))
 	} else if cfg.JaegerCollectorHost != "" {
 		buf.WriteString(fmt.Sprintf("jaeger_reporter_local_agent_host_port   %v:%v;", cfg.JaegerCollectorHost, cfg.JaegerCollectorPort))
+		buf.WriteString("\r\n")
 		buf.WriteString(fmt.Sprintf("jaeger_service_name                     %v;", cfg.JaegerServiceName))
+		buf.WriteString("\r\n")
 		buf.WriteString(fmt.Sprintf("jaeger_sampler_type                     %v;", cfg.JaegerSamplerType))
+		buf.WriteString("\r\n")
 		buf.WriteString(fmt.Sprintf("jaeger_sampler_param                    %v;", cfg.JaegerSamplerParam))
 	}
 
+	buf.WriteString("\r\n")
 	return buf.String()
 }

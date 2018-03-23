@@ -7,13 +7,18 @@ services:
 
 language: go
 
+addons:
+  apt:
+    packages:
+    - luarocks
+
 notifications:
   email:
     on_failure: always
     on_success: never
 
 go:
-  - 1.9.4
+  - "1.10"
 
 go_import_path: k8s.io/ingress-nginx
 
@@ -32,16 +37,16 @@ jobs:
   include:
   - stage: Static Check
     script:
+    - sudo luarocks install luacheck
+    - make luacheck
     - go get github.com/golang/lint/golint
+    - go get -u github.com/jteeuwen/go-bindata/...
     - make verify-all
   - stage: Coverage
     before_script:
     # start minikube 
     - test/e2e/up.sh
     script:
-    - go get github.com/mattn/goveralls
-    - go get github.com/modocache/gover
-    - if ! go get github.com/golang/tools/cmd/cover; then go get golang.org/x/tools/cmd/cover;fi
     - if ! go get github.com/jteeuwen/go-bindata/...; then github.com/jteeuwen/go-bindata/...;fi
     - make cover
   - stage: e2e

@@ -96,9 +96,6 @@ func parseFlags() (bool, *controller.Configuration, error) {
 			`Force namespace isolation. This flag is required to avoid the reference of secrets or
 		configmaps located in a different namespace than the specified in the flag --watch-namespace.`)
 
-		_ = flags.Bool("disable-node-list", false,
-			`Disable querying nodes. If --force-namespace-isolation is true, this should also be set. (DEPRECATED)`)
-
 		updateStatusOnShutdown = flags.Bool("update-status-on-shutdown", true, `Indicates if the
 		ingress controller should update the Ingress status IP/hostname when the controller
 		is being stopped. Default is true`)
@@ -130,9 +127,14 @@ func parseFlags() (bool, *controller.Configuration, error) {
 
 		syncRateLimit = flags.Float32("sync-rate-limit", 0.3,
 			`Define the sync frequency upper limit`)
-	)
 
-	flags.MarkDeprecated("disable-node-list", "This flag is currently no-op and will be deleted.")
+		publishStatusAddress = flags.String("publish-status-address", "",
+			`User customized address to be set in the status of ingress resources. The controller will set the
+		endpoint records on the ingress using this address.`)
+
+		dynamicConfigurationEnabled = flags.Bool("enable-dynamic-configuration", false,
+			`When enabled controller will try to avoid Nginx reloads as much as possible by using Lua. Disabled by default.`)
+	)
 
 	flag.Set("logtostderr", "true")
 
@@ -193,27 +195,29 @@ func parseFlags() (bool, *controller.Configuration, error) {
 	}
 
 	config := &controller.Configuration{
-		APIServerHost:            *apiserverHost,
-		KubeConfigFile:           *kubeConfigFile,
-		UpdateStatus:             *updateStatus,
-		ElectionID:               *electionID,
-		EnableProfiling:          *profiling,
-		EnableSSLPassthrough:     *enableSSLPassthrough,
-		EnableSSLChainCompletion: *enableSSLChainCompletion,
-		ResyncPeriod:             *resyncPeriod,
-		DefaultService:           *defaultSvc,
-		Namespace:                *watchNamespace,
-		ConfigMapName:            *configMap,
-		TCPConfigMapName:         *tcpConfigMapName,
-		UDPConfigMapName:         *udpConfigMapName,
-		DefaultSSLCertificate:    *defSSLCertificate,
-		DefaultHealthzURL:        *defHealthzURL,
-		PublishService:           *publishSvc,
-		ForceNamespaceIsolation:  *forceIsolation,
-		UpdateStatusOnShutdown:   *updateStatusOnShutdown,
-		SortBackends:             *sortBackends,
-		UseNodeInternalIP:        *useNodeInternalIP,
-		SyncRateLimit:            *syncRateLimit,
+		APIServerHost:               *apiserverHost,
+		KubeConfigFile:              *kubeConfigFile,
+		UpdateStatus:                *updateStatus,
+		ElectionID:                  *electionID,
+		EnableProfiling:             *profiling,
+		EnableSSLPassthrough:        *enableSSLPassthrough,
+		EnableSSLChainCompletion:    *enableSSLChainCompletion,
+		ResyncPeriod:                *resyncPeriod,
+		DefaultService:              *defaultSvc,
+		Namespace:                   *watchNamespace,
+		ConfigMapName:               *configMap,
+		TCPConfigMapName:            *tcpConfigMapName,
+		UDPConfigMapName:            *udpConfigMapName,
+		DefaultSSLCertificate:       *defSSLCertificate,
+		DefaultHealthzURL:           *defHealthzURL,
+		PublishService:              *publishSvc,
+		PublishStatusAddress:        *publishStatusAddress,
+		ForceNamespaceIsolation:     *forceIsolation,
+		UpdateStatusOnShutdown:      *updateStatusOnShutdown,
+		SortBackends:                *sortBackends,
+		UseNodeInternalIP:           *useNodeInternalIP,
+		SyncRateLimit:               *syncRateLimit,
+		DynamicConfigurationEnabled: *dynamicConfigurationEnabled,
 		ListenPorts: &ngx_config.ListenPorts{
 			Default:  *defServerPort,
 			Health:   *healthzPort,

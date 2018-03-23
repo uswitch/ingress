@@ -101,6 +101,10 @@ type Configuration struct {
 	// By default access logs go to /var/log/nginx/access.log
 	AccessLogPath string `json:"access-log-path,omitempty"`
 
+	// WorkerCpuAffinity bind nginx worker processes to CPUs this will improve response latency
+	// http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity
+	// By default this is disabled
+	WorkerCpuAffinity string `json:"worker-cpu-affinity,omitempty"`
 	// ErrorLogPath sets the path of the error logs
 	// http://nginx.org/en/docs/ngx_core_module.html#error_log
 	// By default error logs go to /var/log/nginx/error.log
@@ -336,6 +340,10 @@ type Configuration struct {
 	// http://nginx.org/en/docs/http/ngx_http_gzip_module.html
 	UseGzip bool `json:"use-gzip,omitempty"`
 
+	// Enables or disables the use of the nginx geoip module that creates variables with values depending on the client IP
+	// http://nginx.org/en/docs/http/ngx_http_geoip_module.html
+	UseGeoIP bool `json:"use-geoip,omitempty"`
+
 	// Enables or disables the use of the NGINX Brotli Module for compression
 	// https://github.com/google/ngx_brotli
 	EnableBrotli bool `json:"enable-brotli,omitempty"`
@@ -475,6 +483,17 @@ type Configuration struct {
 	// http://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req_status
 	// Default: 503
 	LimitReqStatusCode int `json:"limit-req-status-code"`
+
+	// EnableSyslog enables the configuration for remote logging in NGINX
+	EnableSyslog bool `json:"enable-syslog"`
+	// SyslogHost FQDN or IP address where the logs should be sent
+	SyslogHost string `json:"syslog-host"`
+	// SyslogPort port
+	SyslogPort int `json:"syslog-port"`
+
+	// NoTLSRedirectLocations is a comma-separated list of locations
+	// that should not get redirected to TLS
+	NoTLSRedirectLocations string `json:"no-tls-redirect-locations"`
 }
 
 // NewDefault returns the default nginx configuration
@@ -485,6 +504,7 @@ func NewDefault() Configuration {
 	cfg := Configuration{
 		AllowBackendServerHeader:   false,
 		AccessLogPath:              "/var/log/nginx/access.log",
+		WorkerCpuAffinity:          "",
 		ErrorLogPath:               "/var/log/nginx/error.log",
 		BrotliLevel:                4,
 		BrotliTypes:                brotliTypes,
@@ -530,6 +550,7 @@ func NewDefault() Configuration {
 		SSLSessionTimeout:          sslSessionTimeout,
 		EnableBrotli:               false,
 		UseGzip:                    true,
+		UseGeoIP:                   true,
 		WorkerProcesses:            strconv.Itoa(runtime.NumCPU()),
 		WorkerShutdownTimeout:      "10s",
 		LoadBalanceAlgorithm:       defaultLoadBalancerAlgorithm,
@@ -540,23 +561,24 @@ func NewDefault() Configuration {
 		UseHTTP2:                   true,
 		ProxyStreamTimeout:         "600s",
 		Backend: defaults.Backend{
-			ProxyBodySize:         bodySize,
-			ProxyConnectTimeout:   5,
-			ProxyReadTimeout:      60,
-			ProxySendTimeout:      60,
-			ProxyBufferSize:       "4k",
-			ProxyCookieDomain:     "off",
-			ProxyCookiePath:       "off",
-			ProxyNextUpstream:     "error timeout invalid_header http_502 http_503 http_504",
-			ProxyRequestBuffering: "on",
-			ProxyRedirectFrom:     "off",
-			SSLRedirect:           true,
-			CustomHTTPErrors:      []int{},
-			WhitelistSourceRange:  []string{},
-			SkipAccessLogURLs:     []string{},
-			LimitRate:             0,
-			LimitRateAfter:        0,
-			ProxyBuffering:        "off",
+			ProxyBodySize:          bodySize,
+			ProxyConnectTimeout:    5,
+			ProxyReadTimeout:       60,
+			ProxySendTimeout:       60,
+			ProxyBufferSize:        "4k",
+			ProxyCookieDomain:      "off",
+			ProxyCookiePath:        "off",
+			ProxyNextUpstream:      "error timeout invalid_header http_502 http_503 http_504",
+			ProxyNextUpstreamTries: 0,
+			ProxyRequestBuffering:  "on",
+			ProxyRedirectFrom:      "off",
+			SSLRedirect:            true,
+			CustomHTTPErrors:       []int{},
+			WhitelistSourceRange:   []string{},
+			SkipAccessLogURLs:      []string{},
+			LimitRate:              0,
+			LimitRateAfter:         0,
+			ProxyBuffering:         "off",
 		},
 		UpstreamKeepaliveConnections: 32,
 		LimitConnZoneVariable:        defaultLimitConnZoneVariable,
@@ -569,6 +591,8 @@ func NewDefault() Configuration {
 		JaegerSamplerType:            "const",
 		JaegerSamplerParam:           "1",
 		LimitReqStatusCode:           503,
+		SyslogPort:                   514,
+		NoTLSRedirectLocations:       "/.well-known/acme-challenge",
 	}
 
 	if glog.V(5) {
@@ -591,23 +615,24 @@ func (cfg Configuration) BuildLogFormatUpstream() string {
 
 // TemplateConfig contains the nginx configuration to render the file nginx.conf
 type TemplateConfig struct {
-	ProxySetHeaders         map[string]string
-	AddHeaders              map[string]string
-	MaxOpenFiles            int
-	BacklogSize             int
-	Backends                []*ingress.Backend
-	PassthroughBackends     []*ingress.SSLPassthroughBackend
-	Servers                 []*ingress.Server
-	TCPBackends             []ingress.L4Service
-	UDPBackends             []ingress.L4Service
-	HealthzURI              string
-	CustomErrors            bool
-	Cfg                     Configuration
-	IsIPV6Enabled           bool
-	IsSSLPassthroughEnabled bool
-	RedirectServers         map[string]string
-	ListenPorts             *ListenPorts
-	PublishService          *apiv1.Service
+	ProxySetHeaders             map[string]string
+	AddHeaders                  map[string]string
+	MaxOpenFiles                int
+	BacklogSize                 int
+	Backends                    []*ingress.Backend
+	PassthroughBackends         []*ingress.SSLPassthroughBackend
+	Servers                     []*ingress.Server
+	TCPBackends                 []ingress.L4Service
+	UDPBackends                 []ingress.L4Service
+	HealthzURI                  string
+	CustomErrors                bool
+	Cfg                         Configuration
+	IsIPV6Enabled               bool
+	IsSSLPassthroughEnabled     bool
+	RedirectServers             map[string]string
+	ListenPorts                 *ListenPorts
+	PublishService              *apiv1.Service
+	DynamicConfigurationEnabled bool
 }
 
 // ListenPorts describe the ports required to run the

@@ -18,7 +18,7 @@ all: all-container
 BUILDTAGS=
 
 # Use the 0.0 tag for testing, it shouldn't clobber any release builds
-TAG?=0.10.2
+TAG?=0.12.0
 REGISTRY?=quay.io/kubernetes-ingress-controller
 GOOS?=linux
 DOCKER?=gcloud docker --
@@ -50,7 +50,7 @@ IMAGE = $(REGISTRY)/$(IMGNAME)
 MULTI_ARCH_IMG = $(IMAGE)-$(ARCH)
 
 # Set default base image dynamically for each arch
-BASEIMAGE?=quay.io/kubernetes-ingress-controller/nginx-$(ARCH):0.34
+BASEIMAGE?=quay.io/kubernetes-ingress-controller/nginx-$(ARCH):0.38
 
 ifeq ($(ARCH),arm)
 	QEMUARCH=arm
@@ -97,7 +97,7 @@ container: .container-$(ARCH)
 .PHONY: .container-$(ARCH)
 .container-$(ARCH):
 	cp -RP ./* $(TEMP_DIR)
-	$(SED_I) 's|BASEIMAGE|$(BASEIMAGE)|g' $(DOCKERFILE)
+	$(SED_I) "s|BASEIMAGE|$(BASEIMAGE)|g" $(DOCKERFILE)
 	$(SED_I) "s|QEMUARCH|$(QEMUARCH)|g" $(DOCKERFILE)
 	$(SED_I) "s|DUMB_ARCH|$(DUMB_ARCH)|g" $(DOCKERFILE)
 
@@ -135,7 +135,7 @@ clean:
 
 .PHONE: code-generator
 code-generator:
-		go-bindata -o internal/file/bindata.go -prefix="rootfs" -pkg=file -ignore=Dockerfile -ignore=".DS_Store" rootfs/...
+		go-bindata -nometadata -o internal/file/bindata.go -prefix="rootfs" -pkg=file -ignore=Dockerfile -ignore=".DS_Store" rootfs/...
 
 .PHONY: build
 build: clean
@@ -149,7 +149,6 @@ verify-all:
 
 .PHONY: test
 test:
-	@echo "+ $@"
 	@go test -v -race -tags "$(BUILDTAGS) cgo" $(shell go list ${PKG}/... | grep -v vendor | grep -v '/test/e2e')
 
 .PHONY: e2e-image
@@ -160,19 +159,30 @@ e2e-image: sub-container-amd64
 .PHONY: e2e-test
 e2e-test:
 	@go test -o e2e-tests -c ./test/e2e
-	@KUBECONFIG=${HOME}/.kube/config INGRESSNGINXCONFIG=${HOME}/.kube/config ./e2e-tests -test.parallel 1
+	@KUBECONFIG=${HOME}/.kube/config ./e2e-tests -test.parallel 1
 
 .PHONY: cover
 cover:
-	@echo "+ $@"
-	@go list -f '{{if len .TestGoFiles}}"go test -coverprofile={{.Dir}}/.coverprofile {{.ImportPath}}"{{end}}' $(shell go list ${PKG}/... | grep -v vendor | grep -v '/test/e2e') | xargs -L 1 sh -c
-	gover
-	goveralls -coverprofile=gover.coverprofile -service travis-ci
+	@rm -rf coverage.txt
+	@for d in `go list ./... | grep -v vendor | grep -v '/test/e2e'`; do \
+		t=$$(date +%s); \
+		go test -coverprofile=cover.out -covermode=atomic $$d || exit 1; \
+		echo "Coverage test $$d took $$(($$(date +%s)-t)) seconds"; \
+		if [ -f cover.out ]; then \
+			cat cover.out >> coverage.txt; \
+			rm cover.out; \
+		fi; \
+	done
+	@echo "Uploading coverage results..."
+	@curl -s https://codecov.io/bash | bash
 
 .PHONY: vet
 vet:
-	@echo "+ $@"
 	@go vet $(shell go list ${PKG}/... | grep -v vendor)
+
+.PHONY: luacheck
+luacheck:
+	luacheck -q ./rootfs/etc/nginx/lua/
 
 .PHONY: release
 release: all-container all-push

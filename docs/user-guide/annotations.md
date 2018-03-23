@@ -42,11 +42,13 @@ The following annotations are supported:
 |[nginx.ingress.kubernetes.io/proxy-send-timeout](#custom-timeouts)|number|
 |[nginx.ingress.kubernetes.io/proxy-read-timeout](#custom-timeouts)|number|
 |[nginx.ingress.kubernetes.io/proxy-next-upstream](#custom-timeouts)|string|
+|[nginx.ingress.kubernetes.io/proxy-next-upstream-tries](#custom-timeouts)|number|
 |[nginx.ingress.kubernetes.io/proxy-request-buffering](#custom-timeouts)|string|
 |[nginx.ingress.kubernetes.io/proxy-redirect-from](#proxy-redirect)|string|
 |[nginx.ingress.kubernetes.io/proxy-redirect-to](#proxy-redirect)|string|
 |[nginx.ingress.kubernetes.io/rewrite-target](#rewrite)|URI|
 |[nginx.ingress.kubernetes.io/secure-backends](#secure-backends)|"true" or "false"|
+|[nginx.ingress.kubernetes.io/secure-verify-ca-secret](#secure-backends)|string|
 |[nginx.ingress.kubernetes.io/server-alias](#server-alias)|string|
 |[nginx.ingress.kubernetes.io/server-snippet](#server-snippet)|string|
 |[nginx.ingress.kubernetes.io/service-upstream](#service-upstream)|"true" or "false"|
@@ -57,11 +59,13 @@ The following annotations are supported:
 |[nginx.ingress.kubernetes.io/upstream-max-fails](#custom-nginx-upstream-checks)|number|
 |[nginx.ingress.kubernetes.io/upstream-fail-timeout](#custom-nginx-upstream-checks)|number|
 |[nginx.ingress.kubernetes.io/upstream-hash-by](#custom-nginx-upstream-hashing)|string|
+|[nginx.ingress.kubernetes.io/load-balance](#custom-nginx-load-balancing)|string|
 |[nginx.ingress.kubernetes.io/upstream-vhost](#custom-nginx-upstream-vhost)|string|
 |[nginx.ingress.kubernetes.io/whitelist-source-range](#whitelist-source-range)|CIDR|
 |[nginx.ingress.kubernetes.io/proxy-buffering](#proxy-buffering)|string|
 |[nginx.ingress.kubernetes.io/ssl-ciphers](#ssl-ciphers)|string|
 |[nginx.ingress.kubernetes.io/connection-proxy-header](#connection-proxy-header)|string|
+|[nginx.ingress.kubernetes.io/enable-access-log](#enable-access-log)|"true" or "false"|
 
 **Note:** all the values must be a string. In case of booleans or number it must be quoted.
 
@@ -134,6 +138,11 @@ NGINX supports load balancing by client-server mapping based on [consistent hash
 To enable consistent hashing for a backend:
 
 `nginx.ingress.kubernetes.io/upstream-hash-by`: the nginx variable, text value or any combination thereof to use for consistent hashing. For example `nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"` to consistently hash upstream requests by the current request URI.
+
+### Custom NGINX load balancing
+
+This is similar to https://github.com/kubernetes/ingress-nginx/blob/master/docs/user-guide/configmap.md#load-balance but configures load balancing algorithm per ingress.
+Note that `nginx.ingress.kubernetes.io/upstream-hash-by` takes preference over this. If this and `nginx.ingress.kubernetes.io/upstream-hash-by` are not set then we fallback to using globally configured load balancing algorithm.
 
 ### Custom NGINX upstream vhost
 
@@ -340,6 +349,9 @@ The annotation `nginx.ingress.kubernetes.io/ssl-passthrough` allows to configure
 ### Secure backends
 
 By default NGINX uses `http` to reach the services. Adding the annotation `nginx.ingress.kubernetes.io/secure-backends: "true"` in the Ingress rule changes the protocol to `https`.
+If you want to validate the upstream against a specific certificate, you can create a secret with it and reference the secret with the annotation `nginx.ingress.kubernetes.io/secure-verify-ca-secret`.
+
+Please note that if an invalid or non-existent secret is given, the NGINX ingress controller will ignore the `secure-backends` annotation.
 
 ### Service Upstream
 
@@ -394,6 +406,7 @@ In some scenarios is required to have different values. To allow this we provide
 - `nginx.ingress.kubernetes.io/proxy-send-timeout`
 - `nginx.ingress.kubernetes.io/proxy-read-timeout`
 - `nginx.ingress.kubernetes.io/proxy-next-upstream`
+- `nginx.ingress.kubernetes.io/proxy-next-upstream-tries`
 - `nginx.ingress.kubernetes.io/proxy-request-buffering`
 
 ### Proxy redirect
@@ -441,4 +454,12 @@ Using this annotation will override the default connection header set by nginx. 
 
 ```yaml
 nginx.ingress.kubernetes.io/connection-proxy-header: "keep-alive"
+```
+
+### Enable Access Log
+
+In some scenarios could be required to disable NGINX access logs. To enable this feature use the annotation:
+
+```yaml
+nginx.ingress.kubernetes.io/enable-access-log: "false"
 ```
