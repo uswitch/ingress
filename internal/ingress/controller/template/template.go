@@ -820,6 +820,15 @@ func buildOpentracing(input interface{}) string {
 
 	buf := bytes.NewBufferString("")
 
+	if cfg.OpenTracingOperationName != "" {
+		buf.WriteString(fmt.Sprintf("opentracing_operation_name   %v;", cfg.OpenTracingOperationName))
+		buf.WriteString("\r\n")
+	}
+	if cfg.OpenTracingLocationOperationName != "" {
+		buf.WriteString(fmt.Sprintf("opentracing_location_operation_name   %v;", cfg.OpenTracingLocationOperationName))
+		buf.WriteString("\r\n")
+	}
+
 	if cfg.ZipkinCollectorHost != "" {
 		buf.WriteString(fmt.Sprintf("zipkin_collector_host                   %v;", cfg.ZipkinCollectorHost))
 		buf.WriteString("\r\n")

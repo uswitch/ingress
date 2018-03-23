@@ -424,6 +424,12 @@ type Configuration struct {
 	// By default this is disabled
 	EnableOpentracing bool `json:"enable-opentracing"`
 
+	// OpenTracingOperationName specifies the operation name of the span for the request
+	OpenTracingOperationName string `json:"opentracing-operation-name"`
+
+	// OpenTracingLocationOperationName specifies the operation name of the span for the location block
+	OpenTracingLocationOperationName string `json:"opentracing-location-operation-name"`
+
 	// ZipkinCollectorHost specifies the host to use when uploading traces
 	ZipkinCollectorHost string `json:"zipkin-collector-host"`
 
@@ -580,19 +586,21 @@ func NewDefault() Configuration {
 			LimitRateAfter:         0,
 			ProxyBuffering:         "off",
 		},
-		UpstreamKeepaliveConnections: 32,
-		LimitConnZoneVariable:        defaultLimitConnZoneVariable,
-		BindAddressIpv4:              defBindAddress,
-		BindAddressIpv6:              defBindAddress,
-		ZipkinCollectorPort:          9411,
-		ZipkinServiceName:            "nginx",
-		JaegerCollectorPort:          6831,
-		JaegerServiceName:            "nginx",
-		JaegerSamplerType:            "const",
-		JaegerSamplerParam:           "1",
-		LimitReqStatusCode:           503,
-		SyslogPort:                   514,
-		NoTLSRedirectLocations:       "/.well-known/acme-challenge",
+		UpstreamKeepaliveConnections:     32,
+		LimitConnZoneVariable:            defaultLimitConnZoneVariable,
+		BindAddressIpv4:                  defBindAddress,
+		BindAddressIpv6:                  defBindAddress,
+		OpenTracingOperationName:         "$server_name",
+		OpenTracingLocationOperationName: "$uri",
+		ZipkinCollectorPort:              9411,
+		ZipkinServiceName:                "nginx",
+		JaegerCollectorPort:              6831,
+		JaegerServiceName:                "nginx",
+		JaegerSamplerType:                "const",
+		JaegerSamplerParam:               "1",
+		LimitReqStatusCode:               503,
+		SyslogPort:                       514,
+		NoTLSRedirectLocations:           "/.well-known/acme-challenge",
 	}
 
 	if glog.V(5) {
