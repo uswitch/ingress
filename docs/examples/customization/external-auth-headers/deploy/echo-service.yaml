@@ -1,26 +1,36 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: demo-echo-service
+  creationTimestamp: null
   labels:
     k8s-app: demo-echo-service
+  name: demo-echo-service
   namespace: default
 spec:
+  progressDeadlineSeconds: 2147483647
   replicas: 1
+  revisionHistoryLimit: 2147483647
   selector:
     matchLabels:
       k8s-app: demo-echo-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
   template:
     metadata:
+      creationTimestamp: null
       labels:
         k8s-app: demo-echo-service
     spec:
-      terminationGracePeriodSeconds: 60
       containers:
-      - name: echo-service
-        image: electroma/ingress-demo-echosvc-amd64:0.1
+      - image: electroma/ingress-demo-echosvc-amd64:0.1
+        imagePullPolicy: IfNotPresent
+        name: echo-service
         ports:
         - containerPort: 8080
+          protocol: TCP
         resources:
           limits:
             cpu: 10m
@@ -28,6 +38,14 @@ spec:
           requests:
             cpu: 10m
             memory: 20Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 60
+status: {}
 ---
 apiVersion: v1
 kind: Service
