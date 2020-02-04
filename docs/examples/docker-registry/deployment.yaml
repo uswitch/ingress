@@ -1,8 +1,10 @@
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: docker-registry
 
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,9 +59,9 @@ spec:
       - emptyDir: {}
         name: image-store
 status: {}
----
 
 kind: Service
+---
 apiVersion: v1
 metadata:
   name: docker-registry
